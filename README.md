@@ -13,6 +13,50 @@ This repository hosts pre-compiled runtime binaries used by [CAMPP](https://gith
 | **MySQL** | 8.4.x, 8.0.x | Windows x64/ARM64, macOS x64/ARM64, Linux x64/ARM64 | ✅ Stable |
 | **phpMyAdmin** | 5.2.x | Universal (ZIP) | ✅ Stable |
 
+## ✅ Release Status
+
+All runtime binary zip files have been successfully uploaded and released to GitHub Releases. You can download them directly from the [Releases](https://github.com/karnyong/campp-runtime-binaries/releases) page.
+
+### Available Files
+
+| File | Size | Description |
+|------|------|-------------|
+| `caddy_2.8.4_windows_amd64.zip` | 14.2 MB | Caddy web server v2.8.4 for Windows x64 |
+| `caddy_2.8.4_windows_arm64.zip` | 12.9 MB | Caddy web server v2.8.4 for Windows ARM64 |
+| `caddy_2.8.4_linux_amd64.tar.gz` | 13.9 MB | Caddy web server v2.8.4 for Linux x64 |
+| `caddy_2.8.4_linux_arm64.tar.gz` | 12.9 MB | Caddy web server v2.8.4 for Linux ARM64 |
+| `caddy_darwin_amd64` | 13.0 MB | Caddy web server v2.8.4 for macOS x64 |
+| `caddy_darwin_arm64` | 12.4 MB | Caddy web server v2.8.4 for macOS ARM64 (Apple Silicon) |
+| `mysql-8.4.0-winx64.zip` | 247.0 MB | MySQL Community Server v8.4.0 for Windows x64 |
+| `mysql-8.4.0-linux-glibc2.28-x86_64.tar.xz` | 459.0 MB | MySQL Community Server v8.4.0 for Linux x64 |
+| `mysql-8.4.0-linux-glibc2.28-aarch64.tar.xz` | 453.2 MB | MySQL Community Server v8.4.0 for Linux ARM64 |
+| `mysql-8.4.0-macos14-x86_64.tar.gz` | 160.6 MB | MySQL Community Server v8.4.0 for macOS x64 |
+| `mysql-8.4.0-macos14-arm64.tar.gz` | 156.5 MB | MySQL Community Server v8.4.0 for macOS ARM64 (Apple Silicon) |
+| `php-8.5.1-Win32-vs17-x64.zip` | 33.1 MB | PHP v8.5.1 for Windows x64 (VS17) |
+| `php-8.5.1-Win32-vs17-x86.zip` | 29.5 MB | PHP v8.5.1 for Windows x86 (VS17) |
+| `php-8.4.18-fpm-linux-x86_64.tar.gz` | 29.6 MB | PHP v8.4.18 FPM for Linux x64 |
+| `php-8.4.18-fpm-linux-aarch64.tar.gz` | 30.1 MB | PHP v8.4.18 FPM for Linux ARM64 |
+| `php-8.4.18-fpm-macos-x86_64.tar.gz` | 35.4 MB | PHP v8.4.18 FPM for macOS x64 |
+| `php-8.4.18-fpm-macos-aarch64.tar.gz` | 34.5 MB | PHP v8.4.18 FPM for macOS ARM64 (Apple Silicon) |
+| `phpMyAdmin-5.2.2-all-languages.zip` | 15.0 MB | phpMyAdmin v5.2.2 (all languages) |
+
+### Download Links & SHA256 Checksums
+
+See [DOWNLOAD_LINKS.md](DOWNLOAD_LINKS.md) for complete download URLs and SHA256 checksums for file verification.
+
+#### Quick Reference
+
+| Component | Release Tag | Files |
+|-----------|-------------|-------|
+| MySQL 8.4.0 | `mysql-8.4.0` | 5 files |
+| PHP 8.5.1 & 8.4.18 | `php-8.5.1` | 6 files |
+| phpMyAdmin 5.2.2 | `phpmyadmin-5.2.2` | 1 file |
+
+**Download URL Pattern:**
+```
+https://github.com/KarnYong/campp-runtime-binaries/releases/download/{tag}/{filename}
+```
+
 ## 🚀 Usage
 
 ### For CAMPP Users
