@@ -1,0 +1,29 @@
+# Binary archives
+*.tar.gz
+*.tar.xz
+*.zip
+
+# Caddy binaries
+caddy_*
+caddy_darwin_*
+
+# MySQL binaries
+mysql-*
+mariadb-*
+
+# PHP binaries
+php-*
+
+# phpMyAdmin
+phpMyAdmin-*
+
+# Executable binaries
+*.exe
+*.dll
+*.so
+*.dylib
+!**/*.example
+
+# Claude Code files
+.claude/
+memory/

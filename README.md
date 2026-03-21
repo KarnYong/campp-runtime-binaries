@@ -171,6 +171,18 @@ When adding new binaries or updating versions:
 | [MySQL](https://www.mysql.com/) | https://www.mysql.com/downloads | GPL v2 |
 | [phpMyAdmin](https://www.phpmyadmin.net/) | https://www.phpmyadmin.net | GPL v2 |
 
+### Original Runtime File Sources
+
+The binaries in this repository are sourced from the following official locations:
+
+| Component | Platform | Source URL |
+|-----------|----------|------------|
+| **Caddy** | Windows / macOS / Linux | https://github.com/caddyserver/caddy/releases/ |
+| **PHP** | Windows | https://downloads.php.net/~windows/releases/ |
+| **PHP** | macOS / Linux | https://dl.static-php.dev/static-php-cli/bulk/ |
+| **MySQL** | Windows / macOS | https://dev.mysql.com/downloads/mysql/ |
+| **MariaDB** | Linux | https://archive.mariadb.org/ |
+
 ## 🔗 Links
 
 - [CAMPP Main Repository](https://github.com/karnyong/campp)
