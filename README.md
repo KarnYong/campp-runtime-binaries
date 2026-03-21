@@ -9,7 +9,7 @@ This repository hosts pre-compiled runtime binaries used by [CAMPP](https://gith
 | Component | Versions | Platforms | Status |
 |-----------|----------|-----------|--------|
 | **Caddy** | 2.8.4 | Windows x64/ARM64, macOS x64/ARM64, Linux x64/ARM64 | ✅ Stable |
-| **PHP** | 8.5.x, 8.4.x, 8.3.x, 8.2.x | Windows x64/ARM64, macOS x64/ARM64, Linux x64/ARM64 | ✅ Stable |
+| **PHP** | 8.5.x, 8.4.x, 8.3.x, 8.2.x, 7.4.x | Windows x64/x86, macOS x64/ARM64, Linux x64/ARM64 | ✅ Stable |
 | **MySQL** | 8.4.x, 8.0.x | Windows x64/ARM64, macOS x64/ARM64, Linux x64/ARM64 | ✅ Stable |
 | **phpMyAdmin** | 5.2.x | Universal (ZIP) | ✅ Stable |
 
@@ -39,6 +39,8 @@ All runtime binary zip files have been successfully uploaded and released to Git
 | `php-8.4.18-fpm-macos-x86_64.tar.gz` | 35.4 MB | PHP v8.4.18 FPM for macOS x64 |
 | `php-8.4.18-fpm-macos-aarch64.tar.gz` | 34.5 MB | PHP v8.4.18 FPM for macOS ARM64 (Apple Silicon) |
 | `phpMyAdmin-5.2.2-all-languages.zip` | 15.0 MB | phpMyAdmin v5.2.2 (all languages) |
+| `php-7.4.33-Win32-vc15-x64.zip` | 26.2 MB | PHP v7.4.33 for Windows x64 (VC15) |
+| `php-7.4.33-Win32-vc15-x86.zip` | 24.3 MB | PHP v7.4.33 for Windows x86 (VC15) |
 
 ### Download Links & SHA256 Checksums
 
@@ -50,6 +52,7 @@ See [DOWNLOAD_LINKS.md](DOWNLOAD_LINKS.md) for complete download URLs and SHA256
 |-----------|-------------|-------|
 | MySQL 8.4.0 | `mysql-8.4.0` | 5 files |
 | PHP 8.5.1 & 8.4.18 | `php-8.5.1` | 6 files |
+| PHP 7.4.33 | `php-7.4.33` | 2 files |
 | phpMyAdmin 5.2.2 | `phpmyadmin-5.2.2` | 1 file |
 
 **Download URL Pattern:**
