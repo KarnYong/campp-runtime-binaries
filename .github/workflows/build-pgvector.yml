@@ -129,37 +129,6 @@ jobs:
           name: pgvector-macos-arm64
           path: pgvector-${{ env.PGVECTOR_VER }}-darwin-aarch64.tar.gz
 
-  # ── macOS x86_64 ────────────────────────────────────────────
-  build-macos-x64:
-    runs-on: macos-13
-    steps:
-      - name: Install PostgreSQL 18
-        run: brew install postgresql@18
-
-      - name: Clone & build pgvector
-        run: |
-          export PG_CONFIG="$(brew --prefix postgresql@18)/bin/pg_config"
-          git clone --branch v${{ env.PGVECTOR_VER }} --depth 1 https://github.com/pgvector/pgvector.git
-          cd pgvector
-          make OPTFLAGS=""
-          DESTDIR=/tmp/install make install
-
-      - name: Package
-        run: |
-          PKGLIB=$("$(brew --prefix postgresql@18)/bin/pg_config" --pkglibdir)
-          SHAREDIR=$("$(brew --prefix postgresql@18)/bin/pg_config" --sharedir)
-          mkdir -p /tmp/pkg/lib /tmp/pkg/share/extension
-          cp "/tmp/install${PKGLIB}/vector.dylib" /tmp/pkg/lib/
-          cp "/tmp/install${SHAREDIR}/extension/vector.control" /tmp/pkg/share/extension/
-          cp "/tmp/install${SHAREDIR}"/extension/vector--*.sql /tmp/pkg/share/extension/
-          cd /tmp/pkg
-          tar czf "${GITHUB_WORKSPACE}/pgvector-${{ env.PGVECTOR_VER }}-darwin-x86_64.tar.gz" lib share
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pgvector-macos-x64
-          path: pgvector-${{ env.PGVECTOR_VER }}-darwin-x86_64.tar.gz
-
   # ── Windows x64 ─────────────────────────────────────────────
   build-windows-x64:
     runs-on: windows-latest
@@ -199,7 +168,7 @@ jobs:
 
   # ── Release ─────────────────────────────────────────────────
   release:
-    needs: [build-linux-x64, build-linux-arm64, build-macos-x64, build-macos-arm64, build-windows-x64]
+    needs: [build-linux-x64, build-linux-arm64, build-macos-arm64, build-windows-x64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
