@@ -1,0 +1,233 @@
+name: Build pgvector
+
+on:
+  workflow_dispatch:
+    inputs:
+      pgvector_version:
+        description: 'pgvector version'
+        required: true
+        default: '0.8.2'
+
+permissions:
+  contents: write
+
+env:
+  PGVECTOR_VER: ${{ inputs.pgvector_version }}
+
+jobs:
+  # ── Linux x86_64 ────────────────────────────────────────────
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL 18 dev headers
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+            > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-server-dev-18 make gcc git
+
+      - name: Clone & build pgvector
+        run: |
+          git clone --branch v${{ env.PGVECTOR_VER }} --depth 1 https://github.com/pgvector/pgvector.git
+          cd pgvector
+          make OPTFLAGS=""
+          DESTDIR=/tmp/install make install
+
+      - name: Package
+        run: |
+          PKGLIB=$(pg_config --pkglibdir)
+          SHAREDIR=$(pg_config --sharedir)
+          mkdir -p /tmp/pkg/lib /tmp/pkg/share/extension
+          cp "/tmp/install${PKGLIB}/vector.so" /tmp/pkg/lib/
+          cp "/tmp/install${SHAREDIR}/extension/vector.control" /tmp/pkg/share/extension/
+          cp "/tmp/install${SHAREDIR}"/extension/vector--*.sql /tmp/pkg/share/extension/
+          cd /tmp/pkg
+          tar czf "${GITHUB_WORKSPACE}/pgvector-${{ env.PGVECTOR_VER }}-linux-x86_64.tar.gz" lib share
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgvector-linux-x64
+          path: pgvector-${{ env.PGVECTOR_VER }}-linux-x86_64.tar.gz
+
+  # ── Linux ARM64 ─────────────────────────────────────────────
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build pgvector in ARM64 container
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD:/output" ubuntu:24.04 bash -c '
+            set -e
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y -qq curl ca-certificates lsb-release make gcc git
+            install -d /usr/share/postgresql-common/pgdg
+            curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+              http://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" \
+              > /etc/apt/sources.list.d/pgdg.list
+            apt-get update -qq
+            apt-get install -y -qq postgresql-server-dev-18
+            cd /tmp
+            git clone --branch v${{ env.PGVECTOR_VER }} --depth 1 https://github.com/pgvector/pgvector.git
+            cd pgvector
+            make OPTFLAGS=""
+            DESTDIR=/tmp/install make install
+            PKGLIB=$(pg_config --pkglibdir)
+            SHAREDIR=$(pg_config --sharedir)
+            mkdir -p /tmp/pkg/lib /tmp/pkg/share/extension
+            cp "/tmp/install${PKGLIB}/vector.so" /tmp/pkg/lib/
+            cp "/tmp/install${SHAREDIR}/extension/vector.control" /tmp/pkg/share/extension/
+            cp /tmp/install${SHAREDIR}/extension/vector--*.sql /tmp/pkg/share/extension/
+            cd /tmp/pkg
+            tar czf /output/pgvector-${{ env.PGVECTOR_VER }}-linux-aarch64.tar.gz lib share
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgvector-linux-arm64
+          path: pgvector-${{ env.PGVECTOR_VER }}-linux-aarch64.tar.gz
+
+  # ── macOS ARM64 ─────────────────────────────────────────────
+  build-macos-arm64:
+    runs-on: macos-latest
+    steps:
+      - name: Install PostgreSQL 18
+        run: brew install postgresql@18
+
+      - name: Clone & build pgvector
+        run: |
+          export PG_CONFIG="$(brew --prefix postgresql@18)/bin/pg_config"
+          git clone --branch v${{ env.PGVECTOR_VER }} --depth 1 https://github.com/pgvector/pgvector.git
+          cd pgvector
+          make OPTFLAGS=""
+          DESTDIR=/tmp/install make install
+
+      - name: Package
+        run: |
+          PKGLIB="$(brew --prefix postgresql@18)/bin/pg_config --pkglibdir | bash"
+          SHAREDIR="$(brew --prefix postgresql@18)/bin/pg_config --sharedir | bash"
+          # Use explicit paths since Homebrew layout is predictable
+          PKGLIB=$("$(brew --prefix postgresql@18)/bin/pg_config" --pkglibdir)
+          SHAREDIR=$("$(brew --prefix postgresql@18)/bin/pg_config" --sharedir)
+          mkdir -p /tmp/pkg/lib /tmp/pkg/share/extension
+          cp "/tmp/install${PKGLIB}/vector.dylib" /tmp/pkg/lib/
+          cp "/tmp/install${SHAREDIR}/extension/vector.control" /tmp/pkg/share/extension/
+          cp "/tmp/install${SHAREDIR}"/extension/vector--*.sql /tmp/pkg/share/extension/
+          cd /tmp/pkg
+          tar czf "${GITHUB_WORKSPACE}/pgvector-${{ env.PGVECTOR_VER }}-darwin-aarch64.tar.gz" lib share
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgvector-macos-arm64
+          path: pgvector-${{ env.PGVECTOR_VER }}-darwin-aarch64.tar.gz
+
+  # ── macOS x86_64 ────────────────────────────────────────────
+  build-macos-x64:
+    runs-on: macos-13
+    steps:
+      - name: Install PostgreSQL 18
+        run: brew install postgresql@18
+
+      - name: Clone & build pgvector
+        run: |
+          export PG_CONFIG="$(brew --prefix postgresql@18)/bin/pg_config"
+          git clone --branch v${{ env.PGVECTOR_VER }} --depth 1 https://github.com/pgvector/pgvector.git
+          cd pgvector
+          make OPTFLAGS=""
+          DESTDIR=/tmp/install make install
+
+      - name: Package
+        run: |
+          PKGLIB=$("$(brew --prefix postgresql@18)/bin/pg_config" --pkglibdir)
+          SHAREDIR=$("$(brew --prefix postgresql@18)/bin/pg_config" --sharedir)
+          mkdir -p /tmp/pkg/lib /tmp/pkg/share/extension
+          cp "/tmp/install${PKGLIB}/vector.dylib" /tmp/pkg/lib/
+          cp "/tmp/install${SHAREDIR}/extension/vector.control" /tmp/pkg/share/extension/
+          cp "/tmp/install${SHAREDIR}"/extension/vector--*.sql /tmp/pkg/share/extension/
+          cd /tmp/pkg
+          tar czf "${GITHUB_WORKSPACE}/pgvector-${{ env.PGVECTOR_VER }}-darwin-x86_64.tar.gz" lib share
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgvector-macos-x64
+          path: pgvector-${{ env.PGVECTOR_VER }}-darwin-x86_64.tar.gz
+
+  # ── Windows x64 ─────────────────────────────────────────────
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Install PostgreSQL 18 via Chocolatey
+        run: choco install postgresql18 --params '/Password:postgres'
+        shell: powershell
+
+      - name: Clone pgvector
+        run: |
+          git clone --branch v${{ env.PGVECTOR_VER }} --depth 1 https://github.com/pgvector/pgvector.git
+        shell: cmd
+
+      - name: Build with nmake
+        run: |
+          set "PGROOT=C:\Program Files\PostgreSQL\18"
+          cd pgvector
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64
+          nmake /F Makefile.win
+          nmake /F Makefile.win install
+        shell: cmd
+
+      - name: Package
+        run: |
+          New-Item -ItemType Directory -Force -Path C:\tmp\pkg\lib, C:\tmp\pkg\share\extension
+          Copy-Item "C:\Program Files\PostgreSQL\18\lib\vector.dll" C:\tmp\pkg\lib\
+          Copy-Item "C:\Program Files\PostgreSQL\18\share\extension\vector.control" C:\tmp\pkg\share\extension\
+          Copy-Item "C:\Program Files\PostgreSQL\18\share\extension\vector--*.sql" C:\tmp\pkg\share\extension\
+          cd C:\tmp\pkg
+          7z a -tzip "$env:GITHUB_WORKSPACE\pgvector-${{ env.PGVECTOR_VER }}-windows-x64.zip" lib share
+        shell: powershell
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pgvector-windows-x64
+          path: pgvector-${{ env.PGVECTOR_VER }}-windows-x64.zip
+
+  # ── Release ─────────────────────────────────────────────────
+  release:
+    needs: [build-linux-x64, build-linux-arm64, build-macos-x64, build-macos-arm64, build-windows-x64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Compute SHA-256 checksums
+        run: |
+          cd artifacts
+          for f in *.zip *.tar.gz; do
+            [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
+          done
+          cat *.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag: pgvector-${{ env.PGVECTOR_VER }}
+          name: pgvector ${{ env.PGVECTOR_VER }}
+          body: |
+            pgvector ${{ env.PGVECTOR_VER }} compiled against PostgreSQL 18.
+
+            Each archive contains:
+            - `lib/vector.dll` (or `.so` / `.dylib`)
+            - `share/extension/vector.control`
+            - `share/extension/vector--*.sql`
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+            artifacts/**/*.sha256
