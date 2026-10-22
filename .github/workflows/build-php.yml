@@ -20,6 +20,9 @@ permissions:
   contents: write
 
 env:
+  # static-php-cli fetches pre-built tools via the GitHub API; unauthenticated calls
+  # from shared runners hit the rate limit (HTTP 403).
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   SPC_REF: '2.8.5'
   # Same set as the static-php.dev "bulk" builds CAMPP shipped before, plus
   # pdo_pgsql and pdo_sqlite (missing there, needed for PDO with PostgreSQL/SQLite).
