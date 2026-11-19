@@ -46,6 +46,18 @@ Safe checksum sources (genuine per-file SHA-256): PostgreSQL `.sha256` sidecars,
 
 ## Workflow
 
+### Automated: `scripts/update_runtimes.py` (use this first)
+
+Runs the steps below for every component, following the rules on this page.
+
+- `python scripts/update_runtimes.py`: check-only report. It never changes anything.
+- `--apply --only <comp,...>`: downloads each file, hashes it itself, and mirrors PHP/MySQL/phpMyAdmin to releases. It asks before creating a release (`--yes` skips the prompt). It updates each release line's entry in place, except Caddy, which gets a new entry that becomes the default. It then verifies.
+- `--verify [--deep]`: checks that the JSON parses and has exactly one default per component, that every URL responds, and that mirror digests match. With `--deep`, it also re-downloads and re-hashes.
+- New major lines (e.g. PHP 8.6) are reported only. Add them by hand using the steps below. ngrok is report-only too.
+- Run `python scripts/test_update_runtimes.py` after changing the script.
+
+The manual steps below remain the fallback, and the reference for what the script does.
+
 ### A) Direct-upstream components (Caddy, MariaDB, PostgreSQL, Adminer, ngrok)
 No upload. Just get real SHA-256s and add the config entry pointing at the upstream URL.
 

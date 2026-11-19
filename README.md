@@ -78,7 +78,20 @@ https://github.com/karnyong/campp-runtime-binaries/releases/download/v1.0.0/php-
 
 ## 🔄 Updating Binaries
 
-When updating to new versions of components, follow these steps:
+### Checking for updates (automated)
+
+```bash
+python scripts/update_runtimes.py                        # report what's outdated (changes nothing)
+python scripts/update_runtimes.py --apply --only mariadb # download, hash, (mirror), update runtime-config.json
+python scripts/update_runtimes.py --verify [--deep]      # validate runtime-config.json
+python scripts/test_update_runtimes.py                   # offline self-check
+```
+
+Needs Python 3.10+, plus `gh` (authenticated with push access to this repo) and `git`. It never commits.
+
+### Manual steps
+
+When updating to new versions of components by hand, follow these steps:
 
 ### 1. Download the Official Binary
 

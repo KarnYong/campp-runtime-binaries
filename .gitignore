@@ -27,3 +27,7 @@ phpMyAdmin-*
 # Claude Code files
 .claude/
 memory/
+
+# Python
+__pycache__/
+*.pyc
