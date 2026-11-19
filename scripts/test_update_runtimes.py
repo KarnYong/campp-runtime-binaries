@@ -190,6 +190,68 @@ def test_php_split():
         pass
 
 
+def test_mariadb_windows_reuse():
+    m = {"binaries": {"mariadb": {"versions": [{
+        "id": "mariadb-11.8", "version": "11.8.10", "selected": True, "display_name": "MariaDB 11.8.10",
+        "urls": {"linuxX64": "https://a/mariadb-11.8.10-linux-systemd-x86_64.tar.gz",
+                 "windowsX64": "https://a/mariadb-11.8.10-winx64.zip",
+                 "windowsArm64": "https://a/mariadb-11.8.10-winx64.zip"},
+        "checksums": {"linuxX64": "1" * 64, "windowsX64": "2" * 64, "windowsArm64": "2" * 64}}]}}}
+    c = {"component": "mariadb", "entry_index": 0, "current": "11.8.10"}
+    got = _got("11.8.11", "3" * 64, "mariadb-11.8.11-winx64.zip", ["windowsX64"])
+    u.stage_update(m, c, got, {"windowsX64": "https://a/mariadb-11.8.11-winx64.zip"})
+    e = m["binaries"]["mariadb"]["versions"][0]
+    assert e["urls"]["windowsArm64"] == e["urls"]["windowsX64"] == "https://a/mariadb-11.8.11-winx64.zip"
+    assert e["checksums"]["windowsArm64"] == e["checksums"]["windowsX64"] == "3" * 64
+    assert e["checksums"]["linuxX64"] == "1" * 64  # Linux not stale -> untouched
+
+
+def test_mirrored_stage_keeps_upstream_as_fallback():
+    m = _manifest()
+    c = {"component": "mysql", "entry_index": 0, "current": "8.4.11"}
+    got = _got("8.4.13", "d" * 64, "mysql-8.4.13-winx64.zip", ["windowsX64"])  # upstream url https://up/...
+    u.stage_update(m, c, got, {"windowsX64": u.MIRROR_PREFIX + "mysql-8.4.13/mysql-8.4.13-winx64.zip"})
+    e = m["binaries"]["mysql"]["versions"][0]
+    assert e["fallback_urls"]["windowsX64"] == "https://up/mysql-8.4.13-winx64.zip"
+    assert e["fallback_urls"]["windowsArm64"] == e["fallback_urls"]["windowsX64"]  # reuse follows
+    assert "macOSX64" not in e["fallback_urls"]  # untouched platform gets none
+    # Direct-upstream staging (url == upstream) records no fallback
+    m2 = _manifest()
+    c2 = {"component": "caddy", "entry_index": 0, "current": "2.11.7"}
+    got2 = _got("2.11.9", "e" * 64, "caddy_2.11.9_linux_amd64.tar.gz", ["linuxX64"])
+    u.stage_update(m2, c2, got2, {"linuxX64": "https://up/caddy_2.11.9_linux_amd64.tar.gz"})
+    assert "fallback_urls" not in m2["binaries"]["caddy"]["versions"][0]
+
+
+def test_all_urls_includes_fallbacks():
+    m = {"binaries": {"x": {"versions": [
+        {"urls": {"linuxX64": "https://mirror/a"}, "checksums": {"linuxX64": "a" * 64},
+         "fallback_urls": {"linuxX64": "https://up/a"}},
+        {"url": "https://mirror/b", "checksum": "b" * 64, "fallback_url": "https://up/b"}]}}}
+    assert u.all_urls(m) == {"https://mirror/a": "a" * 64, "https://up/a": "a" * 64,
+                             "https://mirror/b": "b" * 64, "https://up/b": "b" * 64}
+
+
+def test_glibc_ceiling():
+    import io
+    import tarfile
+    with tempfile.TemporaryDirectory() as d:
+        def make(name, payload):
+            p = Path(d) / name
+            with tarfile.open(p, "w:gz") as t:
+                info = tarfile.TarInfo("pg/bin/initdb")
+                info.size = len(payload)
+                t.addfile(info, io.BytesIO(payload))
+            return p
+        old = make("old.tar.gz", b"\x7fELF....GLIBC_2.17..GLIBC_2.34..")
+        new = make("new.tar.gz", b"\x7fELF....GLIBC_2.34..GLIBC_2.36..")
+        text = make("txt.tar.gz", b"README mentions GLIBC_2.99")  # not ELF: ignored
+        assert u.max_glibc(old) == (2, 34) and u.glibc_ok("linuxX64", old)
+        assert u.max_glibc(new) == (2, 36) and not u.glibc_ok("linuxArm64", new)
+        assert u.glibc_ok("windowsX64", new)  # only Linux is checked
+        assert u.max_glibc(text) is None and u.glibc_ok("linuxX64", text)
+
+
 def test_verify_single_default():
     m = {"binaries": {"x": {"versions": [{"id": "a", "selected": True}, {"id": "b", "selected": True}]}}}
     with tempfile.TemporaryDirectory() as d:

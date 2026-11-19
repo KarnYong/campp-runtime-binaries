@@ -4,6 +4,7 @@
     python scripts/update_runtimes.py                     # check-only report (default, changes nothing)
     python scripts/update_runtimes.py --apply [--only php,mysql] [--yes]
     python scripts/update_runtimes.py --verify [--deep]
+    python scripts/update_runtimes.py --mirror-existing [--only postgresql] [--yes]   # one-time, see mirror_existing()
 
 Exit codes: 0 ok, 1 something failed, 2 usage / unreadable manifest.
 Rules this follows: campp-runtime-binaries/CLAUDE.md. Contract: specs/001-runtime-update-checker/contracts/cli.md.
@@ -233,9 +234,15 @@ def files_mariadb(line):
     if not stable:
         raise NotListed("no stable release")
     v = max(stable, key=vkey)
+    files = stable[v].get("files", [])
     name = f"mariadb-{v}-linux-systemd-x86_64.tar.gz"
-    return {"linuxX64": {"version": v, "sha256": mariadb_sha(stable[v].get("files", []), name),
-                         "url": f"https://archive.mariadb.org/mariadb-{v}/bintar-linux-systemd-x86_64/{name}"}}
+    out = {"linuxX64": {"version": v, "sha256": mariadb_sha(files, name),
+                        "url": f"https://archive.mariadb.org/mariadb-{v}/bintar-linux-systemd-x86_64/{name}"}}
+    win = f"mariadb-{v}-winx64.zip"
+    if any(f["file_name"] == win for f in files):  # Windows build may lag; omit rather than fail the line
+        out["windowsX64"] = {"version": v, "sha256": mariadb_sha(files, win),
+                             "url": f"https://archive.mariadb.org/mariadb-{v}/winx64-packages/{win}"}
+    return out
 
 
 @functools.lru_cache(None)
@@ -308,13 +315,14 @@ COMPONENTS = {
                 files=files_php, versions=lambda: list(_php_win())),
     "mysql": dict(width=2, mirrored=True, platforms=["windowsX64", "windowsArm64", "macOSX64", "macOSArm64"],
                   reuse={"windowsArm64": "windowsX64"}, files=files_mysql, versions=_mysql_tags),
-    "mariadb": dict(width=2, mirrored=False, platforms=["linuxX64"], reuse={},
+    "mariadb": dict(width=2, mirrored=True, platforms=["linuxX64", "windowsX64", "windowsArm64"],
+                    reuse={"windowsArm64": "windowsX64"},
                     files=files_mariadb, versions=_versions_mariadb),
     "phpmyadmin": dict(width=2, mirrored=True, single_file=True, platforms=["url"], reuse={}, files=files_phpmyadmin,
                        versions=lambda: [r["version"] for r in get_json("https://www.phpmyadmin.net/home_page/version.json")["releases"]]),
-    "postgresql": dict(width=1, mirrored=False, platforms=list(PG_TARGET), reuse={},
+    "postgresql": dict(width=1, mirrored=True, platforms=list(PG_TARGET), reuse={},
                        files=files_postgresql, versions=lambda: [r["tag_name"] for r in _pg()]),
-    "adminer": dict(width=1, mirrored=False, single_file=True, platforms=["url"], reuse={},
+    "adminer": dict(width=1, mirrored=True, single_file=True, platforms=["url"], reuse={},
                     files=files_adminer, versions=lambda: [r["tag_name"] for r in _adminer()]),
     "ngrok": dict(width=1, mirrored=False, report_only=True, platforms=[], reuse={},
                   files=files_ngrok, versions=_ngrok),
@@ -405,8 +413,51 @@ def print_report(cands):
 
 # ---------------------------------------------------------------- apply
 
+# Oldest glibc CAMPP supports on Linux: Ubuntu 22.04 LTS (2.35). PostgreSQL's
+# upstream silently moved to 2.36 in Nov 2026 and broke 22.04; never ship that again.
+# ponytail: one constant; raise it when 22.04 support is dropped.
+GLIBC_CEILING = (2, 35)
+_GLIBC_RE = re.compile(rb"GLIBC_2\.(\d+)")
+
+
+def max_glibc(path):
+    """Highest GLIBC_2.x symbol version any ELF file inside a .tar.gz/.zip needs, or None."""
+    import tarfile
+    import zipfile
+    best = None
+
+    def scan(data):
+        nonlocal best
+        if data[:4] == b"\x7fELF":
+            for m in _GLIBC_RE.finditer(data):
+                v = (2, int(m.group(1)))
+                best = v if best is None or v > best else best
+
+    p = str(path)
+    if p.endswith((".tar.gz", ".tgz")):
+        with tarfile.open(p, "r:gz") as t:
+            for member in t:
+                if member.isfile():
+                    scan(t.extractfile(member).read())
+    elif p.endswith(".zip"):
+        with zipfile.ZipFile(p) as z:
+            for name in z.namelist():
+                if not name.endswith("/"):
+                    scan(z.read(name))
+    return best
+
+
+def glibc_ok(platform, path):
+    """Linux builds must run on GLIBC_CEILING; other platforms always pass."""
+    if not platform.startswith("linux"):
+        return True
+    need = max_glibc(path)
+    return need is None or need <= GLIBC_CEILING
+
+
 def fetch_candidate(c, tmp):
-    """Download + hash every stale platform file. Upstream SHA-256 is a cross-check only."""
+    """Download + hash every stale platform file. Upstream SHA-256 is a cross-check only.
+    A Linux file needing a newer glibc than GLIBC_CEILING is dropped (old file kept)."""
     got, by_url = {}, {}
     for p in c["stale"]:
         f = c["files"][p]
@@ -417,8 +468,11 @@ def fetch_candidate(c, tmp):
                 raise RuntimeError(f"upstream checksum mismatch for {f['url']}")
             by_url[f["url"]] = (path, sha)
         path, sha = by_url[f["url"]]
+        if not glibc_ok(p, path):
+            print(f"  kept old {c['component']} {p}: {f['version']} needs glibc > {'.'.join(map(str, GLIBC_CEILING))}")
+            continue
         got[p] = dict(f, path=path, sha=sha)
-    return got
+    return got  # may be empty: every stale file was a Linux build over the ceiling
 
 
 def stage_update(data, c, got, urls):
@@ -430,16 +484,25 @@ def stage_update(data, c, got, urls):
     new_v = max([entry["version"]] + [g["version"] for g in got.values() if g["version"]], key=vkey)
     if spec.get("single_file"):
         entry["url"], entry["checksum"] = urls["url"], got["url"]["sha"]
+        if urls["url"] != got["url"]["url"]:
+            entry["fallback_url"] = got["url"]["url"]
         entry["version"] = new_v
         entry["display_name"] = entry["display_name"].replace(c["current"], new_v)
         return
     new_urls, new_sums = dict(entry.get("urls", {})), dict(entry.get("checksums", {}))
+    new_fb = dict(entry.get("fallback_urls", {}))
     for p, g in got.items():
         if p in new_urls:
             new_urls[p], new_sums[p] = urls[p], g["sha"]
+            if urls[p] != g["url"]:  # mirrored: keep upstream as the app's fallback
+                new_fb[p] = g["url"]
+            else:
+                new_fb.pop(p, None)
     for dst, src in spec["reuse"].items():
         if dst in new_urls and src in got:
             new_urls[dst], new_sums[dst] = new_urls[src], new_sums[src]
+            if src in new_fb:
+                new_fb[dst] = new_fb[src]
     if comp == "caddy":  # documented exception: prepend new version, promote it
         entry["selected"] = False
         entry["display_name"] = entry["display_name"].replace(" (Latest)", "")
@@ -448,6 +511,8 @@ def stage_update(data, c, got, urls):
         return
     entry["display_name"] = entry["display_name"].replace(c["current"], new_v)
     entry["version"], entry["urls"], entry["checksums"] = new_v, new_urls, new_sums
+    if new_fb:
+        entry["fallback_urls"] = new_fb
 
 
 def preflight_gh():
@@ -468,7 +533,8 @@ def _release_assets(tag):
     return {a["name"]: a.get("digest") for a in rel["assets"]}
 
 
-TITLES = {"php": "PHP", "mysql": "MySQL", "phpmyadmin": "phpMyAdmin"}
+TITLES = {"php": "PHP", "mysql": "MySQL", "phpmyadmin": "phpMyAdmin",
+          "postgresql": "PostgreSQL", "mariadb": "MariaDB", "adminer": "Adminer"}
 
 
 def publish(comp, version, got, yes):
@@ -478,8 +544,10 @@ def publish(comp, version, got, yes):
     if assets is None:
         if not yes and (not sys.stdin.isatty() or input(f"Publish release {tag} to {REPO}? [y/N] ").strip().lower() != "y"):
             raise RuntimeError("publish declined")
-        run(["gh", "release", "create", tag, "--repo", REPO, "--title", f"{TITLES[comp]} {version}",
-             "--notes", "Mirrored from upstream by scripts/update_runtimes.py"])
+        sources = "\n".join(sorted({f"- {g['url']}" for g in got.values()}))
+        notes = (f"Mirrored from upstream by scripts/update_runtimes.py. Unmodified upstream files:\n{sources}\n\n"
+                 "Source code and licences: see each upstream project.")
+        run(["gh", "release", "create", tag, "--repo", REPO, "--title", f"{TITLES[comp]} {version}", "--notes", notes])
         assets = {}
     for g in {g["path"]: g for g in got.values()}.values():
         name = g["path"].name
@@ -510,6 +578,9 @@ def apply(path, data, nl, cands, yes=False, deep=False):
             comp, spec = c["component"], COMPONENTS[c["component"]]
             try:
                 got = fetch_candidate(c, tmp)
+                if not got:
+                    print(f"  skipped {comp} {c['line']}: only Linux builds over the glibc ceiling were new")
+                    continue
                 print(f"  downloaded+hashed {comp} {c['line']}: {', '.join(sorted(got))}")
                 if spec["mirrored"]:
                     entry_v = data["binaries"][comp]["versions"][c["entry_index"]]["version"]
@@ -537,6 +608,67 @@ def apply(path, data, nl, cands, yes=False, deep=False):
     return 1 if failed else 0
 
 
+
+def mirror_existing(path, data, nl, only=None, yes=False, deep=False):
+    """One-time move of current entries of mirrored components onto the binaries repo.
+
+    Each upstream file is downloaded and must hash to the checksum already in the
+    manifest (so the mirror holds exactly what was verified); the old URL is kept as
+    the app's fallback. Idempotent: entries already on the mirror are skipped.
+    """
+    comps = [c for c, sp in COMPONENTS.items() if sp["mirrored"] and c in data["binaries"] and (not only or c in only)]
+    preflight_gh()
+    failed, changed = 0, []
+    with tempfile.TemporaryDirectory(prefix="campp-mirror-") as tmp:
+        for comp in comps:
+            spec = COMPONENTS[comp]
+            for e in data["binaries"][comp]["versions"]:
+                cur = current_urls(e, spec)
+                sums = {"url": e.get("checksum")} if spec.get("single_file") else e.get("checksums", {})
+                todo = {pl: u for pl, u in cur.items() if not u.startswith(MIRROR_PREFIX)}
+                if not todo:
+                    continue
+                try:
+                    got, cache = {}, {}
+                    for pl, u in todo.items():
+                        if u not in cache:
+                            fpath, sha = sha256_download(u, tmp)
+                            if sums.get(pl) and sha != sums[pl]:
+                                raise RuntimeError(f"{u} hashes to {sha[:12]}..., manifest says {sums[pl][:12]}...")
+                            if not glibc_ok(pl, fpath):
+                                raise RuntimeError(f"{u} needs glibc > {'.'.join(map(str, GLIBC_CEILING))}; fix the manifest first")
+                            cache[u] = (fpath, sha)
+                        fpath, sha = cache[u]
+                        got[pl] = {"version": url_version(u) or e["version"], "url": u, "path": fpath, "sha": sha}
+                    urls = publish(comp, e["version"], got, yes)
+                    if spec.get("single_file"):
+                        e["fallback_url"], e["url"] = e["url"], urls["url"]
+                    else:
+                        fb = dict(e.get("fallback_urls", {}))
+                        for pl in got:
+                            fb[pl], e["urls"][pl] = e["urls"][pl], urls[pl]
+                        e["fallback_urls"] = fb
+                    changed += list(urls.values())
+                    print(f"  mirrored {comp} {e['version']}: {', '.join(sorted(got))}", flush=True)
+                except Exception as ex:
+                    failed += 1
+                    print(f"  FAILED {comp} {e['version']}: {ex}", flush=True)
+                finally:
+                    for f in Path(tmp).iterdir():  # keep disk use to one entry at a time
+                        f.unlink()
+    if changed:
+        tmp_path = Path(path).with_suffix(".json.tmp")
+        tmp_path.write_bytes(dump_manifest(data, nl))
+        os.replace(tmp_path, path)
+        print(f"  written {path}")
+        errors = verify(path, changed, deep)
+        for err in errors:
+            print(f"  VERIFY FAILED {err}")
+        print("  verified" if not errors else "")
+        failed += len(errors)
+    return 1 if failed else 0
+
+
 # ---------------------------------------------------------------- verify
 
 def all_urls(data):
@@ -547,6 +679,10 @@ def all_urls(data):
                 out[e["url"]] = e.get("checksum")
             for p, u in e.get("urls", {}).items():
                 out[u] = e.get("checksums", {}).get(p)
+            for p, u in e.get("fallback_urls", {}).items():
+                out[u] = e.get("checksums", {}).get(p)
+            if "fallback_url" in e:
+                out[e["fallback_url"]] = e.get("checksum")
     return out
 
 
@@ -612,6 +748,8 @@ def main(argv=None):
     ap.add_argument("--yes", action="store_true", help="don't ask before publishing mirror releases")
     ap.add_argument("--verify", action="store_true", help="only verify the manifest")
     ap.add_argument("--deep", action="store_true", help="re-download and re-hash URLs during verify")
+    ap.add_argument("--mirror-existing", action="store_true",
+                    help="one-time: move current entries of mirrored components to the binaries repo (upstream kept as fallback)")
     a = ap.parse_args(argv)
     only = set(a.only.split(",")) if a.only else None
     if only and only - set(COMPONENTS):
@@ -622,6 +760,8 @@ def main(argv=None):
     except Exception as ex:
         print(f"cannot read manifest {a.config}: {ex}", file=sys.stderr)
         return 2
+    if a.mirror_existing:
+        return mirror_existing(a.config, data, nl, only, a.yes, a.deep)
     if a.verify and not a.apply:
         errors = verify(a.config, deep=a.deep)
         for e in errors:

@@ -28,12 +28,12 @@ Safe checksum sources (genuine per-file SHA-256): PostgreSQL `.sha256` sidecars,
 | **MySQL** | `cdn.mysql.com/Downloads/MySQL-8.0/…` (see note) | **Win + macOS only** | **Yes** — tag `mysql-<ver>` | hash yourself |
 | **phpMyAdmin** | `phpmyadmin.net` | universal zip | **Yes** — tag `phpmyadmin-<ver>` | hash yourself |
 | **Caddy** | `github.com/caddyserver/caddy/releases` | all 5 | No — direct URL | ⚠️ checksums.txt is **SHA-512** → hash yourself |
-| **MariaDB** | `archive.mariadb.org` | **Linux only** (LTS lines x86_64 only — no aarch64 bintar) | No — direct URL | `sha256sums.txt`, anchor to exact `.tar.gz` |
-| **PostgreSQL** | `github.com/theseus-rs/postgresql-binaries/releases` | all 5 | No — direct URL | `.sha256` sidecar (real SHA-256) |
-| **Adminer** | `github.com/vrana/adminer/releases` | single php file | No — direct URL | hash yourself |
-| **ngrok** | `bin.ngrok.com` | all 5 | No — direct URL | n/a (no checksum field) |
+| **MariaDB** | `archive.mariadb.org` (Linux: `bintar-linux-systemd-x86_64/`; Windows: `winx64-packages/mariadb-<v>-winx64.zip`) | **Linux x64 + Windows x64** (Windows ARM64 reuses the x64 zip; no aarch64 bintar, no macOS) | **Yes** — tag `mariadb-<ver>` | REST `files[]` / `sha256sums.txt`, anchored to the exact file name |
+| **PostgreSQL** | `github.com/theseus-rs/postgresql-binaries/releases` | all 5 | **Yes** — tag `postgresql-<ver>` (most fragile upstream: third-party repo) | `.sha256` sidecar (real SHA-256) |
+| **Adminer** | `github.com/vrana/adminer/releases` | single php file | **Yes** — tag `adminer-<ver>` | hash yourself |
+| **ngrok** | `bin.ngrok.com` | all 5 | **Never** — proprietary, no redistribution | n/a (no checksum field) |
 
-**DB platform split (keep it):** MySQL serves Windows + macOS, MariaDB serves Linux. PostgreSQL serves all five.
+**DB platform split (keep it):** MySQL serves Windows + macOS, MariaDB serves Linux **and Windows** (on Windows the user picks MySQL or MariaDB; MySQL is the default). PostgreSQL serves all five. Linux MySQL is out: it needs the system `libaio`.
 
 ### Component notes
 - **PHP patch mismatch is normal.** Windows (php.net) and Linux/macOS (static-php.dev) ship different patch numbers; static-php lags. One config entry can carry different patches per platform (e.g. Win 8.4.25, Linux/mac 8.4.23). Set `version` to the Windows patch.
@@ -58,7 +58,7 @@ Runs the steps below for every component, following the rules on this page.
 
 The manual steps below remain the fallback, and the reference for what the script does.
 
-### A) Direct-upstream components (Caddy, MariaDB, PostgreSQL, Adminer, ngrok)
+### A) Direct-upstream components (Caddy, ngrok)
 No upload. Just get real SHA-256s and add the config entry pointing at the upstream URL.
 
 ```bash
@@ -73,7 +73,7 @@ curl -sL "https://archive.mariadb.org/mariadb-<v>/bintar-linux-systemd-x86_64/sh
   | grep -iE "mariadb-<v>-linux-systemd-x86_64\.tar\.gz$" | grep -oiE '^[0-9a-f]{64}'
 ```
 
-### B) Mirrored components (PHP, MySQL, phpMyAdmin)
+### B) Mirrored components (PHP, MySQL, phpMyAdmin, PostgreSQL, MariaDB, Adminer)
 Download from upstream → hash → upload here → point config at this repo.
 
 ```bash
@@ -117,6 +117,7 @@ Rules:
 - **Single-file components** (phpMyAdmin, Adminer) use flat `"checksum"` + `"url"` instead of the `checksums`/`urls` maps.
 - **`selected`:** keep exactly one `true` per component. Adding a new version → leave it `false` unless you intend to change the default. (Caddy is the exception where the newest patch is promoted to the selected "Latest".)
 - Adding a version = **append** an entry, don't disturb existing defaults.
+- **Fallback:** mirrored entries keep the original upstream URL in `fallback_urls` (same platform keys) or `fallback_url` (single-file). The app tries the mirror first and the fallback on any failure; both must match the same checksum. The script writes these automatically; `--mirror-existing` moves pre-existing upstream entries onto the mirror once.
 
 ---
 
