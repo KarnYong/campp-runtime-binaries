@@ -252,6 +252,43 @@ def test_glibc_ceiling():
         assert u.max_glibc(text) is None and u.glibc_ok("linuxX64", text)
 
 
+def test_php_cli_follows_fpm():
+    names = [f"php-8.5.{p}-{k}-{s}.tar.gz" for p in (8, 9) for k in ("fpm", "cli") for s in u.STATIC_PLAT.values()]
+    orig = u._php_static
+    u._php_static = lambda: tuple(names)
+    try:
+        u._MANIFEST = {"binaries": {"php": {"versions": [{
+            "id": "php-8.5", "version": "8.5.12",
+            "urls": {"windowsX64": "https://m/php-8.5.12-Win32-vs17-x64.zip",
+                     "linuxX64": "https://m/php-8.5.8-fpm-linux-x86_64.tar.gz",
+                     "macOSArm64": "https://m/php-8.5.8-fpm-macos-aarch64.tar.gz"}}]}}}
+        files = u.files_php_cli("8.5")
+        # pinned to the FPM patch (8.5.8), not the newest CLI (8.5.9); no Windows key
+        assert set(files) == {"linuxX64", "macOSArm64"}
+        assert files["linuxX64"]["version"] == "8.5.8"
+        assert files["linuxX64"]["url"].endswith("/php-8.5.8-cli-linux-x86_64.tar.gz")
+        try:
+            u.files_php_cli("7.4")
+            raise AssertionError("expected NotListed")
+        except u.NotListed:
+            pass
+    finally:
+        u._php_static = orig
+        u._MANIFEST = {}
+
+
+def test_composer_files():
+    orig = u._composer_versions
+    u._composer_versions = lambda: {"2": [{"version": "2.11.2"}], "1": [{"version": "1.10.28"}]}
+    try:
+        f = u.files_composer("2")["url"]
+        assert f["version"] == "2.11.2"
+        assert f["url"] == "https://getcomposer.org/download/2.11.2/composer.phar"
+        assert f["sha256_url"].endswith("composer.phar.sha256sum")
+    finally:
+        u._composer_versions = orig
+
+
 def test_verify_single_default():
     m = {"binaries": {"x": {"versions": [{"id": "a", "selected": True}, {"id": "b", "selected": True}]}}}
     with tempfile.TemporaryDirectory() as d:

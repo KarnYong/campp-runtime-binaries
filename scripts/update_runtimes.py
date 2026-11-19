@@ -305,6 +305,45 @@ def _versions_mariadb():
     return [m["release_id"] for m in majors if m["release_status"] == "Stable"]
 
 
+# Manifest being checked; php_cli's targets come from it (see files_php_cli).
+# ponytail: module global instead of threading data through every latest(); fine for a CLI run.
+_MANIFEST = {}
+
+
+def files_php_cli(line):
+    """Linux/macOS command-line PHP for a PHP line, pinned to the SAME version as that line's
+    php-fpm files in the manifest (FR-011: CLI and FPM never diverge)."""
+    entry = next((e for e in _MANIFEST.get("binaries", {}).get("php", {}).get("versions", [])
+                  if line_of(e["version"], 2) == line), None)
+    if not entry:
+        raise NotListed("no php entry for this line")
+    names = set(_php_static())
+    out = {}
+    for p, s in STATIC_PLAT.items():
+        fpm = entry.get("urls", {}).get(p)
+        v = url_version(fpm) if fpm else None
+        name = f"php-{v}-cli-{s}.tar.gz" if v else None
+        if name and name in names:
+            out[p] = {"version": v, "url": f"https://dl.static-php.dev/static-php-cli/bulk/{name}"}
+    if not out:
+        raise NotListed("no Linux/macOS PHP for this line")
+    return out
+
+
+@functools.lru_cache(None)
+def _composer_versions():
+    return get_json("https://getcomposer.org/versions")
+
+
+def files_composer(line):
+    d = _composer_versions()
+    if line not in d:
+        raise NotListed("not listed")
+    v = d[line][0]["version"]
+    url = f"https://getcomposer.org/download/{v}/composer.phar"
+    return {"url": {"version": v, "url": url, "sha256_url": url + ".sha256sum"}}
+
+
 ALL6 = ["windowsX64", "windowsArm64", "linuxX64", "linuxArm64", "macOSX64", "macOSArm64"]
 
 COMPONENTS = {
@@ -326,6 +365,11 @@ COMPONENTS = {
                     files=files_adminer, versions=lambda: [r["tag_name"] for r in _adminer()]),
     "ngrok": dict(width=1, mirrored=False, report_only=True, platforms=[], reuse={},
                   files=files_ngrok, versions=_ngrok),
+    "composer": dict(width=1, mirrored=True, single_file=True, platforms=["url"], reuse={},
+                     files=files_composer, versions=lambda: [_composer_versions()["2"][0]["version"]]),
+    # Must stay after "php": apply() re-checks it once php is staged.
+    "php_cli": dict(width=2, mirrored=True, platforms=list(STATIC_PLAT), reuse={},
+                    files=files_php_cli, versions=lambda: []),
 }
 
 HEADLINE = ("windowsX64", "url", "linuxX64", "version")
@@ -351,6 +395,8 @@ def headline_of(files):
 
 
 def check(data, only=None):
+    global _MANIFEST
+    _MANIFEST = data
     cands = []
     for comp, spec in COMPONENTS.items():
         if only and comp not in only or comp not in data["binaries"]:
@@ -534,7 +580,8 @@ def _release_assets(tag):
 
 
 TITLES = {"php": "PHP", "mysql": "MySQL", "phpmyadmin": "phpMyAdmin",
-          "postgresql": "PostgreSQL", "mariadb": "MariaDB", "adminer": "Adminer"}
+          "postgresql": "PostgreSQL", "mariadb": "MariaDB", "adminer": "Adminer",
+          "composer": "Composer", "php_cli": "PHP CLI"}
 
 
 def publish(comp, version, got, yes):
@@ -573,8 +620,17 @@ def apply(path, data, nl, cands, yes=False, deep=False):
     if any(COMPONENTS[c["component"]]["mirrored"] for c in todo):
         preflight_gh()  # fail before wasting downloads
     failed, changed = 0, []
+    # php_cli is pinned to php's FPM versions: process it last, re-checked against the
+    # manifest as staged so far, so a php update and its CLI land in the same run.
+    cli_wanted = any(c["component"] in ("php", "php_cli") for c in todo) and "php_cli" in data["binaries"]
+    queue = [c for c in todo if c["component"] != "php_cli"]
     with tempfile.TemporaryDirectory(prefix="campp-rt-") as tmp:
-        for c in todo:
+        while queue or cli_wanted:
+            if not queue:  # php is staged: re-check php_cli against the updated manifest
+                cli_wanted = False
+                queue = [x for x in check(data, {"php_cli"}) if x["status"] == "patch"]
+                continue
+            c = queue.pop(0)
             comp, spec = c["component"], COMPONENTS[c["component"]]
             try:
                 got = fetch_candidate(c, tmp)

@@ -31,6 +31,8 @@ Safe checksum sources (genuine per-file SHA-256): PostgreSQL `.sha256` sidecars,
 | **MariaDB** | `archive.mariadb.org` (Linux: `bintar-linux-systemd-x86_64/`; Windows: `winx64-packages/mariadb-<v>-winx64.zip`) | **Linux x64 + Windows x64** (Windows ARM64 reuses the x64 zip; no aarch64 bintar, no macOS) | **Yes** — tag `mariadb-<ver>` | REST `files[]` / `sha256sums.txt`, anchored to the exact file name |
 | **PostgreSQL** | `github.com/theseus-rs/postgresql-binaries/releases` | all 5 | **Yes** — tag `postgresql-<ver>` (most fragile upstream: third-party repo) | `.sha256` sidecar (real SHA-256) |
 | **Adminer** | `github.com/vrana/adminer/releases` | single php file | **Yes** — tag `adminer-<ver>` | hash yourself |
+| **Composer** | `getcomposer.org/download/<v>/composer.phar` (versions: `getcomposer.org/versions`) | universal phar | **Yes** — tag `composer-<ver>` | `.sha256sum` sidecar + hash yourself |
+| **PHP CLI** (`php_cli`) | static-php `php-<v>-cli-{linux,macos}-{x86_64,aarch64}.tar.gz` | Linux + macOS only (Windows uses `php.exe` from the PHP zip) | **Yes** — tag `php_cli-<ver>` | hash yourself. **Version must equal the php entry's php-fpm file version**; ids match the `php` ids. The script pins it automatically. |
 | **ngrok** | `bin.ngrok.com` | all 5 | **Never** — proprietary, no redistribution | n/a (no checksum field) |
 
 **DB platform split (keep it):** MySQL serves Windows + macOS, MariaDB serves Linux **and Windows** (on Windows the user picks MySQL or MariaDB; MySQL is the default). PostgreSQL serves all five. Linux MySQL is out: it needs the system `libaio`.
